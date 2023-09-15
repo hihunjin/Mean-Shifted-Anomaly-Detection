@@ -150,6 +150,24 @@ def make_subset(dataset, cond: Callable):
     return Subset(dataset, [i for i, labels in enumerate(dataset.attr) if cond(labels)])
 
 
+def get_condition_config(dataset):
+    if dataset == "two_class_color_mnist":
+        TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
+            "01234": True,
+            "red": True,
+        }
+    elif dataset == "multi_color_mnist":
+        TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
+            "label": True,
+            "color": True,
+        }
+    elif dataset == "waterbirds":
+        TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = dict(zip(["y", "place"], [False, False]))
+    elif dataset == "celeba":
+        pass
+    return TRAIN_CONDITION_CONFIG, TEST_CONDITION_CONFIG
+
+
 def get_loaders(dataset, label_class, batch_size, backbone):
     if dataset == "cifar10":
         ds = torchvision.datasets.CIFAR10
@@ -179,26 +197,12 @@ def get_loaders(dataset, label_class, batch_size, backbone):
         from datasets.builder import build_dataset
 
         model, preprocess = M.load("CLIP/ViT-B/16")
-        if dataset == "two_class_color_mnist":
-            TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
-                "01234": True,
-                "red": True,
-            }
-        elif dataset == "multi_color_mnist":
-            TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
-                "label": True,
-                "color": True,
-            }
-        elif dataset == "waterbirds":
-            TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = dict(zip(["y", "place"], [False, False]))
-        elif dataset == "celeba":
-            pass
-
+        train_condition_config = get_condition_config(dataset)[0]
 
         trainset = build_dataset(dataset, "train", preprocess)
         testset = build_dataset(dataset, "test", preprocess)
         trainset_1 = build_dataset(_target_=dataset, split="train", transform=Transform(model.visual.input_resolution))
-        train_condition = make_condition(trainset_1.attr_names, TRAIN_CONDITION_CONFIG)
+        train_condition = make_condition(trainset_1.attr_names, train_condition_config)
 
         train_1_subset = make_subset(trainset_1, train_condition)
 

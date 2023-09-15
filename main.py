@@ -6,6 +6,8 @@ import utils
 from tqdm import tqdm
 import torch.nn.functional as F
 
+from utils import get_condition_config
+
 
 def contrastive_loss(out_1, out_2):
     out_1 = F.normalize(out_1, dim=-1)
@@ -96,7 +98,9 @@ def get_score(model, device, train_loader, test_loader, args):
     if args.dataset == 'cifar10':
         auc = roc_auc_score(test_labels, distances)
     else:
-        auc = roc_auc_score(test_labels[:, 0] == 0, distances)
+        train_condition_config = get_condition_config(args.dataset)[0]
+        _labels = test_labels[:, args.target_index] == 1 - int(train_condition_config[test_loader.dataset.attr_names[args.target_index]])
+        auc = roc_auc_score(_labels, distances)
 
     return auc, train_feature_space
 
@@ -119,6 +123,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-5, help='The initial learning rate.')
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--backbone', default=152, help='ResNet 18/152')
-    parser.add_argument('--angular', action='store_true', help='Train with angular center loss')
+    parser.add_argument('--angular', type=bool, default=False, help='Train with angular center loss')
+    parser.add_argument('--target_index', type=int, default=0, help="The index of the target attribute")
     args = parser.parse_args()
     main(args)
