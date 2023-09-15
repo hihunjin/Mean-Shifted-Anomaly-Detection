@@ -51,10 +51,18 @@ moco_transform = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
 
+from models.base import image_transform
+
 class Transform:
-    def __init__(self):
+    def __init__(self, n_px: int = None, original: bool = True):
+        if n_px is None:
+            n_px = 224
+        if original:
+            resize_crop = [transforms.RandomResizedCrop(224, scale=(0.2, 1.))]
+        else:
+            resize_crop = image_transform(n_px).transforms[:-1]
         self.moco_transform = transforms.Compose([
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+            *resize_crop,
             transforms.RandomApply([
                 transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
             ], p=0.8),
@@ -162,36 +170,34 @@ def get_loaders(dataset, label_class, batch_size, backbone):
                                                   drop_last=False)
         return train_loader, test_loader, torch.utils.data.DataLoader(trainset_1, batch_size=batch_size,
                                                                       shuffle=True, num_workers=2, drop_last=False)
-    elif dataset == "two_class_color_mnist":
-
-        model, preprocess = M.load("CLIP/ViT-B/16")
-        transform = None
-        coarse = {}
+    elif dataset in [
+        "two_class_color_mnist",
+        "multi_color_mnist",
+        "waterbirds",
+        "celeba",
+    ]:
         from datasets.builder import build_dataset
 
+        model, preprocess = M.load("CLIP/ViT-B/16")
         if dataset == "two_class_color_mnist":
-            TRAIN_CONDITION_CONFIG = {
-                "01234": True,
-                "red": True,
-            }
-            TEST_CONDITION_CONFIG = {
+            TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
                 "01234": True,
                 "red": True,
             }
         elif dataset == "multi_color_mnist":
-            TRAIN_CONDITION_CONFIG = {
+            TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
                 "label": True,
                 "color": True,
             }
-            TEST_CONDITION_CONFIG = {
-                "label": True,
-                "color": True,
-            }
+        elif dataset == "waterbirds":
+            TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = dict(zip(["y", "place"], [False, False]))
+        elif dataset == "celeba":
+            pass
 
 
-        trainset = build_dataset("two_class_color_mnist", "train", preprocess)
-        testset = build_dataset("two_class_color_mnist", "test", preprocess)
-        trainset_1 = build_dataset(_target_="two_class_color_mnist", split="train", transform=Transform())
+        trainset = build_dataset(dataset, "train", preprocess)
+        testset = build_dataset(dataset, "test", preprocess)
+        trainset_1 = build_dataset(_target_=dataset, split="train", transform=Transform(model.visual.input_resolution))
         train_condition = make_condition(trainset_1.attr_names, TRAIN_CONDITION_CONFIG)
 
         train_1_subset = make_subset(trainset_1, train_condition)
