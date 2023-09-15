@@ -1,8 +1,12 @@
+from typing import Callable, List, Optional, Union, Dict
+
+import clip
 import torch
 import torchvision
 import torchvision.transforms as transforms
 import numpy as np
 import faiss
+import models as M
 import torchvision.models as models
 import torch.nn.functional as F
 from PIL import ImageFilter
@@ -70,16 +74,29 @@ class Model(torch.nn.Module):
     def __init__(self, backbone):
         super().__init__()
         if backbone == 152:
+            self.backbone_type = "resnet"
             self.backbone = models.resnet152(pretrained=True)
+        elif backbone == "clip":
+            self.backbone_type = "clip"
+            self.backbone = clip.load("ViT-B/32", jit=False)[0]
+            for p in self.backbone.parameters():
+                p.requires_grad = False
+            self.fc = torch.nn.Linear(512, 512)
         else:
+            self.backbone_type = "resnet"
             self.backbone = models.resnet18(pretrained=True)
         self.backbone.fc = torch.nn.Identity()
         freeze_parameters(self.backbone, backbone, train_fc=False)
 
     def forward(self, x):
-        z1 = self.backbone(x)
-        z_n = F.normalize(z1, dim=-1)
-        return z_n
+        if self.backbone_type == "resnet":
+            z1 = self.backbone(x)
+            z_n = F.normalize(z1, dim=-1)
+            return z_n
+        else:
+            with torch.no_grad():
+                image_features = self.backbone.encode_image(x)
+            return self.fc(image_features.to(torch.float32))
 
 def freeze_parameters(model, backbone, train_fc=False):
     if not train_fc:
@@ -107,6 +124,24 @@ def knn_score(train_set, test_set, n_neighbours=2):
     return np.sum(D, axis=1)
 
 
+def make_condition(attr_names: List[str], attribute_config: Dict[Union[int, str], bool]) -> Callable:
+    attr_names_lower = [name.lower() for name in attr_names]
+    new_attribute_config = {
+        k if isinstance(k, int) else attr_names_lower.index(k.lower()): v
+        for k, v in attribute_config.items()
+    }
+    # str, int가 중복되어서 들어오는 것을 방지
+    assert len(attribute_config.keys()) == len(new_attribute_config.keys()), "Duplicate keys"
+
+    return lambda labels: all(labels[i] if v else not labels[i] for i, v in new_attribute_config.items())
+
+
+def make_subset(dataset, cond: Callable):
+    from torch.utils.data import Subset
+
+    return Subset(dataset, [i for i, labels in enumerate(dataset.attr) if cond(labels)])
+
+
 def get_loaders(dataset, label_class, batch_size, backbone):
     if dataset == "cifar10":
         ds = torchvision.datasets.CIFAR10
@@ -127,6 +162,47 @@ def get_loaders(dataset, label_class, batch_size, backbone):
                                                   drop_last=False)
         return train_loader, test_loader, torch.utils.data.DataLoader(trainset_1, batch_size=batch_size,
                                                                       shuffle=True, num_workers=2, drop_last=False)
+    elif dataset == "two_class_color_mnist":
+
+        model, preprocess = M.load("CLIP/ViT-B/16")
+        transform = None
+        coarse = {}
+        from datasets.builder import build_dataset
+
+        if dataset == "two_class_color_mnist":
+            TRAIN_CONDITION_CONFIG = {
+                "01234": True,
+                "red": True,
+            }
+            TEST_CONDITION_CONFIG = {
+                "01234": True,
+                "red": True,
+            }
+        elif dataset == "multi_color_mnist":
+            TRAIN_CONDITION_CONFIG = {
+                "label": True,
+                "color": True,
+            }
+            TEST_CONDITION_CONFIG = {
+                "label": True,
+                "color": True,
+            }
+
+
+        trainset = build_dataset("two_class_color_mnist", "train", preprocess)
+        testset = build_dataset("two_class_color_mnist", "test", preprocess)
+        trainset_1 = build_dataset(_target_="two_class_color_mnist", split="train", transform=Transform())
+        train_condition = make_condition(trainset_1.attr_names, TRAIN_CONDITION_CONFIG)
+
+        train_1_subset = make_subset(trainset_1, train_condition)
+
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=2,
+                                                   drop_last=False)
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2,
+                                                  drop_last=False)
+        return train_loader, test_loader, torch.utils.data.DataLoader(train_1_subset, batch_size=batch_size,
+                                                                      shuffle=True, num_workers=2, drop_last=False)
+
     else:
         print('Unsupported Dataset')
         exit()

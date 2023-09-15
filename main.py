@@ -30,7 +30,7 @@ def contrastive_loss(out_1, out_2):
 
 def train_model(model, train_loader, test_loader, train_loader_1, device, args):
     model.eval()
-    auc, feature_space = get_score(model, device, train_loader, test_loader)
+    auc, feature_space = get_score(model, device, train_loader, test_loader, args)
     print('Epoch: {}, AUROC is: {}'.format(0, auc))
     optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=0.00005)
     center = torch.FloatTensor(feature_space).mean(dim=0)
@@ -40,7 +40,7 @@ def train_model(model, train_loader, test_loader, train_loader_1, device, args):
     for epoch in range(args.epochs):
         running_loss = run_epoch(model, train_loader_1, optimizer, center, device, args.angular)
         print('Epoch: {}, Loss: {}'.format(epoch + 1, running_loss))
-        auc, _ = get_score(model, device, train_loader, test_loader)
+        auc, _ = get_score(model, device, train_loader, test_loader, args)
         print('Epoch: {}, AUROC is: {}'.format(epoch + 1, auc))
 
 
@@ -72,7 +72,7 @@ def run_epoch(model, train_loader, optimizer, center, device, is_angular):
     return total_loss / (total_num)
 
 
-def get_score(model, device, train_loader, test_loader):
+def get_score(model, device, train_loader, test_loader, args):
     train_feature_space = []
     with torch.no_grad():
         for (imgs, _) in tqdm(train_loader, desc='Train set feature extracting'):
@@ -93,7 +93,10 @@ def get_score(model, device, train_loader, test_loader):
 
     distances = utils.knn_score(train_feature_space, test_feature_space)
 
-    auc = roc_auc_score(test_labels, distances)
+    if args.dataset == 'cifar10':
+        auc = roc_auc_score(test_labels, distances)
+    else:
+        auc = roc_auc_score(test_labels[:, 0] == 0, distances)
 
     return auc, train_feature_space
 
@@ -115,7 +118,7 @@ if __name__ == "__main__":
     parser.add_argument('--label', default=0, type=int, help='The normal class')
     parser.add_argument('--lr', type=float, default=1e-5, help='The initial learning rate.')
     parser.add_argument('--batch_size', default=64, type=int)
-    parser.add_argument('--backbone', default=152, type=int, help='ResNet 18/152')
+    parser.add_argument('--backbone', default=152, help='ResNet 18/152')
     parser.add_argument('--angular', action='store_true', help='Train with angular center loss')
     args = parser.parse_args()
     main(args)
