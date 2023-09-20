@@ -98,7 +98,10 @@ def get_score(model, device, train_loader, test_loader, args):
     if args.dataset == 'cifar10':
         auc = roc_auc_score(test_labels, distances)
     else:
-        train_condition_config = get_condition_config(args.dataset)[0]
+        train_condition_config = get_condition_config(
+            dataset_name=args.dataset,
+            dataset_attr_names=test_loader.dataset.attr_names,
+        )[0]
         _labels = test_labels[:, args.target_index] == 1 - int(train_condition_config[test_loader.dataset.attr_names[args.target_index]])
         auc = roc_auc_score(_labels, distances)
 
