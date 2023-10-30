@@ -161,15 +161,21 @@ def get_condition_config(dataset_name: str, dataset_attr_names=None):
             "label": True,
             "color": True,
         }
+    elif dataset_name == "color_mnist":
+        TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = {
+            "label": True,
+            "color": True,
+        }
     elif dataset_name == "waterbirds":
-        TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = dict(zip(["y", "place"], [False, False]))
+        TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = dict(zip(["y", "place"], [True, True]))
     elif dataset_name == "celeba":
         assert dataset_attr_names is not None
         _temp = {
+            dataset_attr_names[9]: True,  # Black_Hair
             dataset_attr_names[15]: True,  # Eyeglasses
             dataset_attr_names[39]: True,  # Young
 
-            dataset_attr_names[22]: True,  # Mustache
+            # dataset_attr_names[22]: True,  # Mustache
             # dataset_attr_names[31]: True,  # Smiling
         }
         TRAIN_CONDITION_CONFIG = TEST_CONDITION_CONFIG = _temp
@@ -192,25 +198,50 @@ def get_loaders(dataset, label_class, batch_size, backbone):
         trainset.targets = [trainset.targets[i] for i, flag in enumerate(idx, 0) if flag]
         trainset_1.data = trainset_1.data[idx]
         trainset_1.targets = [trainset_1.targets[i] for i, flag in enumerate(idx, 0) if flag]
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=2,
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=16,
                                                    drop_last=False)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2,
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=16,
                                                   drop_last=False)
         return train_loader, test_loader, torch.utils.data.DataLoader(trainset_1, batch_size=batch_size,
-                                                                      shuffle=True, num_workers=2, drop_last=False)
+                                                                      shuffle=True, num_workers=16, drop_last=False)
     elif dataset in [
         "two_class_color_mnist",
         "multi_color_mnist",
         "waterbirds",
         "celeba",
+        "color_mnist",
     ]:
-        from datasets.builder import build_dataset
+        from lgad.datasets.builder import build_dataset
 
         model, preprocess = M.load("CLIP/ViT-B/16")
 
-        trainset = build_dataset(dataset, "train", preprocess)
-        testset = build_dataset(dataset, "test", preprocess)
-        trainset_1 = build_dataset(_target_=dataset, split="train", transform=Transform(model.visual.input_resolution))
+        if dataset == "color_mnist":
+            multi = {
+                "attribute_config": {
+                    "label": {
+                        0: True,
+                        1: True,
+                        2: True,
+                        3: True,
+                        4: True,
+                        5: False,
+                        6: False,
+                        7: False,
+                        8: False,
+                        9: False,
+                    },
+                    "color": {
+                        "red": True,
+                        "green": False,
+                        "blue": False,
+                    },
+                },
+            }
+        else:
+            multi = None
+        trainset = build_dataset(dataset, "train", preprocess, multi=multi)
+        testset = build_dataset(dataset, "test", preprocess, multi=multi)
+        trainset_1 = build_dataset(_target_=dataset, split="train", transform=Transform(model.visual.input_resolution), multi=multi)
 
         train_condition_config = get_condition_config(
             dataset_name=dataset,
@@ -221,12 +252,12 @@ def get_loaders(dataset, label_class, batch_size, backbone):
         train_subset = make_subset(trainset, train_condition)
         train_1_subset = make_subset(trainset_1, train_condition)
 
-        train_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=2,
+        train_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=16,
                                                    drop_last=False)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2,
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=16,
                                                   drop_last=False)
         return train_loader, test_loader, torch.utils.data.DataLoader(train_1_subset, batch_size=batch_size,
-                                                                      shuffle=True, num_workers=2, drop_last=False)
+                                                                      shuffle=True, num_workers=16, drop_last=False)
 
     else:
         print('Unsupported Dataset')

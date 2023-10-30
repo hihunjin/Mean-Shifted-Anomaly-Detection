@@ -1,3 +1,5 @@
+import pandas as pd
+import os
 import torch
 from sklearn.metrics import roc_auc_score
 import torch.optim as optim
@@ -32,7 +34,7 @@ def contrastive_loss(out_1, out_2):
 
 def train_model(model, train_loader, test_loader, train_loader_1, device, args):
     model.eval()
-    auc, feature_space = get_score(model, device, train_loader, test_loader, args)
+    auc, feature_space = get_score(model, device, train_loader, test_loader, args, -1)
     print('Epoch: {}, AUROC is: {}'.format(0, auc))
     optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=0.00005)
     center = torch.FloatTensor(feature_space).mean(dim=0)
@@ -42,8 +44,12 @@ def train_model(model, train_loader, test_loader, train_loader_1, device, args):
     for epoch in range(args.epochs):
         running_loss = run_epoch(model, train_loader_1, optimizer, center, device, args.angular)
         print('Epoch: {}, Loss: {}'.format(epoch + 1, running_loss))
-        auc, _ = get_score(model, device, train_loader, test_loader, args)
+        auc, _ = get_score(model, device, train_loader, test_loader, args, epoch=epoch)
         print('Epoch: {}, AUROC is: {}'.format(epoch + 1, auc))
+
+    path_name = "summary_celeba"
+    os.makedirs(path_name, exist_ok=True)
+    pd.DataFrame(summary).transpose().to_csv(f'{path_name}/{args.target_index}__{args.angular}__{args.backbone}__{args.dataset}.csv')
 
 
 def run_epoch(model, train_loader, optimizer, center, device, is_angular):
@@ -74,7 +80,9 @@ def run_epoch(model, train_loader, optimizer, center, device, is_angular):
     return total_loss / (total_num)
 
 
-def get_score(model, device, train_loader, test_loader, args):
+summary = {}
+
+def get_score(model, device, train_loader, test_loader, args, epoch):
     train_feature_space = []
     with torch.no_grad():
         for (imgs, _) in tqdm(train_loader, desc='Train set feature extracting'):
@@ -103,12 +111,16 @@ def get_score(model, device, train_loader, test_loader, args):
             dataset_attr_names=test_loader.dataset.attr_names,
         )[0]
         _labels = test_labels[:, args.target_index] == 1 - int(train_condition_config[test_loader.dataset.attr_names[args.target_index]])
+        import lgad
+
         auc = roc_auc_score(_labels, distances)
+        metric = lgad.binary_metrics(torch.Tensor(distances), torch.Tensor(_labels))
+        summary[epoch] = metric
 
     return auc, train_feature_space
 
 def main(args):
-    print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
+    print('Dataset: {}, Normal Label: {}, LR: {}, angular: {}, ti: {}'.format(args.dataset, args.label, args.lr, args.angular, args.target_index))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
     model = utils.Model(args.backbone)
@@ -123,10 +135,11 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', default='cifar10')
     parser.add_argument('--epochs', default=20, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
-    parser.add_argument('--lr', type=float, default=1e-5, help='The initial learning rate.')
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--lr', type=float, default=1.5e-5, help='The initial learning rate.')
+    parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--backbone', default=152, help='ResNet 18/152')
-    parser.add_argument('--angular', type=bool, default=False, help='Train with angular center loss')
+    parser.add_argument("--angular", type=str, default="False", help="Train with angular center loss")
     parser.add_argument('--target_index', type=int, default=0, help="The index of the target attribute")
     args = parser.parse_args()
+    args.angular = bool(args.angular == "True")
     main(args)
